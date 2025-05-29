@@ -24,16 +24,19 @@ embedder = SentenceTransformer("all-MiniLM-L6-v2")
 LLM_NAME = "HuggingFaceH4/zephyr-7b-beta"
 MAX_NEW_TOKENS = 300
 
+tokenizer = AutoTokenizer.from_pretrained(LLM_NAME)
+model = AutoModelForCausalLM.from_pretrained(
+    LLM_NAME,
+    device_map="auto",
+    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+    trust_remote_code=True,
+    low_cpu_mem_usage=True,
+)
+
 generator = pipeline(
     "text-generation",
-    model=AutoModelForCausalLM.from_pretrained(
-        LLM_NAME,
-        device_map="auto",
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-        trust_remote_code=True,
-        low_cpu_mem_usage=True,
-    ),
-    tokenizer=AutoTokenizer.from_pretrained(LLM_NAME),
+    model=model,
+    tokenizer=tokenizer,
     max_new_tokens=MAX_NEW_TOKENS,
 )
 
@@ -74,7 +77,7 @@ Use the following profile:
 """
 
 def make_prompt(question: str, docs: list[dict]) -> str:
-    context = "\n\n---\n".join(f"{doc['text']} [SOURCE:{doc['section']}]" for doc in docs)
+    context = "\n\n---\n".join(f"{doc['text'][:1000]} [SOURCE:{doc['section']}]" for doc in docs)
     return f"""
 You are an educational planning assistant. Use only the CONTEXT provided. Cite facts as [SOURCE:<section>].
 
@@ -111,5 +114,3 @@ def process_student_profile(profile_text: str) -> dict:
     full_prompt = make_prompt(question, docs)
 
     return llm(full_prompt)
-
-
