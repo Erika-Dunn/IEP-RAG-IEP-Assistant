@@ -93,13 +93,18 @@ def llm(prompt: str) -> dict:
     print("LLM PROMPT:\n", prompt)
     response = generator(prompt)[0]["generated_text"]
 
+    # Log entire raw output to see what's coming back
+    print("LLM RAW OUTPUT:\n", response)
+
+    # Try to locate the JSON section more flexibly
     try:
         json_start = response.find('{')
         json_end = response.rfind('}') + 1
         json_content = response[json_start:json_end]
-        return json.loads(json_content)
-    except json.JSONDecodeError:
-        print("⚠️ Warning: LLM did not return valid JSON. Returning raw output.")
+        parsed = json.loads(json_content)
+        return parsed
+    except Exception as e:
+        print(f"⚠️ JSON Parse Error: {e}")
         return {"raw_output": response.strip()}
 
 # --- Main Pipeline ---
