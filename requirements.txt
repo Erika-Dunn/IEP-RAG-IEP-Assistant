@@ -1,0 +1,12 @@
+faiss-cpu
+sentence-transformers
+transformers
+torch
+pandas
+numpy
+scikit-learn
+beautifulsoup4
+scrapy
+PyMuPDF
+notebook
+jupyterlab
