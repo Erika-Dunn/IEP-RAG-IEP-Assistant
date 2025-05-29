@@ -31,6 +31,17 @@ rag-iep/
 ```
 
 ---
+## 🔐 Setup: OpenAI API Key
+
+To run this project, you'll need an OpenAI API key.
+
+1. Go to [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys) and create a key
+2. In your terminal or notebook, set the key as an environment variable:
+
+### In Colab (temporary for session):
+```python
+import os
+os.environ["OPENAI_API_KEY"] = "sk-..."  # Replace with your key
 
 ## 🛠️ How to Run
 
