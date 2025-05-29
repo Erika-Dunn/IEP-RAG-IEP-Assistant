@@ -1,46 +1,34 @@
-# ✅ FINAL_NLP_Course_CLEAN.py — Cleaned up for OpenAI integration and modular RAG logic
+# FINAL_NLP_Course_CLEAN.py
+# ✅ Core logic: RAG pipeline, OpenAI LLM call, student profile processing
 
-import requests
-from bs4 import BeautifulSoup
-import pdfplumber
-import xml.etree.ElementTree as ET
-import pandas as pd
-import numpy as np
+import os
+import json
+import pickle
 import re
 import faiss
-import pickle
-from sentence_transformers import SentenceTransformer
-import os
 import openai
-import json
+import pandas as pd
+from sentence_transformers import SentenceTransformer
 
-# ✅ Load OpenAI key from environment only
+# Load OpenAI API key from environment variable
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# ✅ FAISS config
-INDEX_PATH     = os.path.join('data', 'full_rag.index')
-META_PATH      = os.path.join('data', 'full_rag_metadata.pkl')
-EMBED_MODEL    = "sentence-transformers/all-MiniLM-L6-v2"
-RETRIEVE_K     = 3
-
-# ✅ Load FAISS index and metadata
+# Load FAISS index and metadata
+INDEX_PATH = os.path.join('..', 'data', 'full_rag.index')
+META_PATH = os.path.join('..', 'data', 'full_rag_metadata.pkl')
 faiss_index = faiss.read_index(INDEX_PATH)
-doc_meta    = pickle.load(open(META_PATH, "rb"))
+doc_meta = pickle.load(open(META_PATH, "rb"))
 
-# ✅ Retrieve top-K matching documents
+# Embedding model
+embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
-def retrieve(query: str, k: int = RETRIEVE_K, embedder=None):
-    embedder = embedder or SentenceTransformer(EMBED_MODEL)
-    q_vec = embedder.encode(query, normalize_embeddings=True)
-    D, I  = faiss_index.search(q_vec.reshape(1, -1).astype("float32"), k)
-    return [dict(doc_meta[i], sim=float(score)) for score, i in zip(D[0], I[0])]
+# --- Vector Search ---
+def vector_search(query: str, k: int = 3) -> list:
+    q_vec = embedder.encode([query], normalize_embeddings=True)
+    D, I = faiss_index.search(q_vec, k)
+    return [dict(doc_meta[i], sim=float(D[0][j])) for j, i in enumerate(I[0])]
 
-# ✅ Prompt builders
-SYSTEM_PROMPT = (
-    "You are an educational planning assistant. "
-    "Use only the CONTEXT provided. Cite facts as [SOURCE:<section>]."
-)
-
+# --- Prompt Engineering ---
 def extract_student_info_prompt(profile_text):
     return f"""Extract the following structured information from the student's profile text below.
 If information is not present, write \"missing\". Output in JSON format with these fields:
@@ -71,14 +59,20 @@ Use the following profile:
 """
 
 def make_prompt(question: str, docs: list[dict]) -> str:
-    context = "\n\n---\n".join(
-        f"{doc['text']} [SOURCE:{doc['section']}]" for doc in docs
-    )
-    return f"<|system|>\n{SYSTEM_PROMPT}\n<|user|>\nCONTEXT:\n{context}\n\nQUESTION:\n{question}\n<|assistant|>\n"
+    context = "\n\n---\n".join(f"{doc['text']} [SOURCE:{doc['section']}]" for doc in docs)
+    return f"""
+You are an educational planning assistant. Use only the CONTEXT provided. Cite facts as [SOURCE:<section>].
 
-# ✅ OpenAI-based LLM function
+CONTEXT:
+{context}
 
+QUESTION:
+{question}
+"""
+
+# --- OpenAI LLM ---
 def llm(prompt: str) -> dict:
+    print("LLM PROMPT:\n", prompt)
     response = openai.ChatCompletion.create(
         model="gpt-4",
         messages=[
@@ -87,21 +81,24 @@ def llm(prompt: str) -> dict:
         ],
         temperature=0.7
     )
-
     output = response["choices"][0]["message"]["content"]
     try:
         return json.loads(output)
     except json.JSONDecodeError:
+        print("⚠️ Warning: LLM did not return valid JSON. Returning raw output.")
         return {"raw_output": output}
 
-# ✅ Processing pipeline
-
-def process_student_profile(profile_text: str):
+# --- Main Pipeline ---
+def process_student_profile(profile_text: str) -> dict:
     extraction_prompt = extract_student_info_prompt(profile_text)
     structured_info = llm(extraction_prompt)
+
     goal_query = structured_info.get("postsecondary goal (employment)", "undecided")
-    docs = retrieve(goal_query)
+    docs = vector_search(goal_query)
+
     question = generate_goals_prompt(structured_info)
     full_prompt = make_prompt(question, docs)
+
     return llm(full_prompt)
+
 
