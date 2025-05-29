@@ -3,30 +3,7 @@
 
 # # Section 0: Prepping for GitHub
 
-# In[ ]:
-
-
-# Set Git identity
-
-# Clone your GitHub repo
-
-# Change directory
-
-
-# 
-# 
 # # Section 1: Data Collection and Preprocessing
-
-# In[5]:
-
-
-# Install Required Packages
-
-
-
-# In[6]:
-
-
 # Import Libraries
 import requests
 from bs4 import BeautifulSoup
@@ -39,16 +16,10 @@ import faiss
 import pickle
 from sentence_transformers import SentenceTransformer
 import os
+import openai
+import json
 
-
-# In[8]:
-
-
-# Google Drive
-
-
-# In[ ]:
-
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Load BLS OOH XML and chunk
 file_path = os.path.join('data', 'ooh_occupations.xml')
@@ -156,14 +127,6 @@ print(f"✅ Combined RAG index created with {len(combined_df)} records.")
 # # Section 2: RAG Pipeline Implementation
 
 # # Section 2 · RAG Retrieval + Generation (Zephyr 7B, FAISS, Colab Pro)
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
 
 import os, pickle, torch
 import faiss
@@ -273,12 +236,7 @@ def rag_chat(question: str, k: int = RETRIEVE_K, max_new_tokens: int = MAX_NEW_T
 
 
 # # Section 3: Prompt Engineering
-
-# In[ ]:
-
-
 # RAG Goal Generation Pipeline – Gradio-Ready
-
 # --- Prompt Builders ---
 
 def extract_student_info_prompt(profile_text):
@@ -324,21 +282,24 @@ def make_prompt(question: str, docs: list[dict]) -> str:
 # --- Mock LLM + Search (Replace in production) ---
 
 def llm(prompt: str) -> dict:
-    print("LLM PROMPT:")
-    print(prompt)
-    return {
-        "employment_goal": "After high school, Clarence will obtain a full-time job at Walmart as a sales associate.",
-        "education_goal": "After high school, Clarence will complete on-the-job training provided by Walmart and participate in employer-sponsored customer service workshops.",
-        "annual_goal": "In 36 weeks, Clarence will demonstrate effective workplace communication and customer service skills...",
-        "alignment": ["OOH standards for Retail Sales Workers", "21st Century Skills"],
-        "benchmarks": [
-            "Greet customers appropriately",
-            "Maintain eye contact",
-            "Listen actively",
-            "Respond to customer questions"
-        ]
-    }
+    print("LLM PROMPT:\n", prompt)
 
+    response = openai.ChatCompletion.create(
+        model="gpt-4",  # or "gpt-3.5-turbo"
+        messages=[
+            {"role": "system", "content": "You are an assistant that writes SMART IEP goals based on a student profile and career standards. Return valid JSON only."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.7
+    )
+
+    output = response["choices"][0]["message"]["content"]
+
+    try:
+        return json.loads(output)
+    except json.JSONDecodeError:
+        print("⚠️ Warning: LLM did not return valid JSON. Returning raw output.")
+        return {"raw_output": output}
 def vector_search(query: str) -> list:
     return [
         {"text": "Retail sales roles require strong communication, customer service, and product knowledge.", "section": "OOH-Retail"},
@@ -363,16 +324,38 @@ def process_student_profile(profile_text: str):
     # Step 4: Generate final goals
     return llm(full_prompt)
 
-# --- Example Run (Clarence Case Study) ---
+# --- Example Runs for Multiple Students including Clarence (Case Study) ---
 
 if __name__ == "__main__":
-    clarence_case_study = """
-    Clarence is a 15-year-old sophomore with a behavior disorder.
-    He completed the O*Net Interest Profiler and showed strong interest in the 'Enterprising' category.
-    Career interests include retail sales and driver/sales worker.
-    Clarence prefers hands-on learning over academic instruction.
-    He expressed in his Vision for the Future interview that he would like to work at Walmart.
-    """
-    results = process_student_profile(clarence_case_study)
-    for k, v in results.items():
-        print(f"{k.upper()}:\n{v}\n")
+    students = {
+        "Clarence": """
+        Clarence is a 15-year-old sophomore with a behavior disorder.
+        He completed the O*Net Interest Profiler and showed strong interest in the 'Enterprising' category.
+        Career interests include retail sales and driver/sales worker.
+        Clarence prefers hands-on learning over academic instruction.
+        He expressed in his Vision for the Future interview that he would like to work at Walmart.
+        """,
+        "Marisol": """
+        Marisol is a 17-year-old senior who enjoys caring for animals and is detail-oriented.
+        She completed the Interest Profiler and scored high in Social and Realistic domains.
+        She wants to be a veterinary assistant and has volunteered at the local animal shelter.
+        She needs support in written communication and managing time across multiple assignments.
+        """,
+        "DeShawn": """
+        DeShawn is a 16-year-old junior with ADHD. He is creative and excels in hands-on technical tasks.
+        He has expressed interest in automotive repair and has participated in a school-sponsored job shadow at a local mechanic’s shop.
+        DeShawn struggles with organization and task completion.
+        """,
+        "Linh": """
+        Linh is a 14-year-old freshman who recently moved to the U.S. and is an English language learner.
+        She shows strength in mathematics and visual problem solving. Her interests include graphic design and architecture.
+        She needs support with English reading comprehension and academic vocabulary.
+        """
+    }
+
+    for name, profile in students.items():
+        print(f"\U0001F393 Generating IEP for: {name}")
+        results = process_student_profile(profile)
+        for k, v in results.items():
+            print(f"{k.upper()}:\n{v}\n")
+        print("="*80)
