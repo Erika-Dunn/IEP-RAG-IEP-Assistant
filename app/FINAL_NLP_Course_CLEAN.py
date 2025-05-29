@@ -76,7 +76,7 @@ def llm(prompt: str) -> dict:
     print("LLM PROMPT:\n", prompt)
 
     response = client.chat.completions.create(
-        model="gpt-4",
+        model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": "You are an assistant that writes SMART IEP goals based on a student profile and career standards. Return valid JSON only."},
             {"role": "user", "content": prompt}
