@@ -93,19 +93,27 @@ def llm(prompt: str) -> dict:
     print("LLM PROMPT:\n", prompt)
     response = generator(prompt)[0]["generated_text"]
 
-    # Log entire raw output to see what's coming back
+    # Log raw output to debug structure
     print("LLM RAW OUTPUT:\n", response)
 
-    # Try to locate the JSON section more flexibly
+    # Try to extract structured JSON if present
     try:
         json_start = response.find('{')
         json_end = response.rfind('}') + 1
-        json_content = response[json_start:json_end]
-        parsed = json.loads(json_content)
-        return parsed
+        if json_start != -1 and json_end > json_start:
+            json_content = response[json_start:json_end]
+            parsed = json.loads(json_content)
+            return parsed
     except Exception as e:
         print(f"⚠️ JSON Parse Error: {e}")
-        return {"raw_output": response.strip()}
+
+    # Try to extract just the 'ANSWER:' section for Hugging Face completions
+    if "ANSWER:" in response:
+        answer_text = response.split("ANSWER:")[1].strip()
+        return {"raw_output": answer_text}
+    
+    # Fallback: return entire string if all else fails
+    return {"raw_output": response.strip()}
 
 # --- Main Pipeline ---
 def process_student_profile(profile_text: str) -> dict:
