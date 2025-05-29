@@ -9,21 +9,25 @@ def generate_goals(student_name, grade, career, strengths, needs):
     """
     result = process_student_profile(profile_text)
 
+    # Safely format lists for display
+    benchmarks = "- " + "\n- ".join(result.get("benchmarks", []))
+    alignment = "- " + "\n- ".join(result.get("alignment", []))
+
     return f"""
 🎯 Employment Goal:
-{result['employment_goal']}
+{result.get('employment_goal', 'N/A')}
 
 📘 Education Goal:
-{result['education_goal']}
+{result.get('education_goal', 'N/A')}
 
 📝 Annual Goal:
-{result['annual_goal']}
+{result.get('annual_goal', 'N/A')}
 
 📌 Benchmarks:
-- {'\\n- '.join(result['benchmarks'])}
+{benchmarks}
 
 📎 Alignment:
-- {'\\n- '.join(result['alignment'])}
+{alignment}
 """
 
 with gr.Blocks() as demo:
@@ -40,8 +44,10 @@ with gr.Blocks() as demo:
     generate_btn = gr.Button("Generate IEP Goals")
     output = gr.Textbox(label="Generated IEP Goals", lines=15)
 
-    generate_btn.click(fn=generate_goals, 
-                       inputs=[name, grade, career, skills, needs], 
-                       outputs=output)
+    generate_btn.click(
+        fn=generate_goals,
+        inputs=[name, grade, career, skills, needs],
+        outputs=output
+    )
 
 demo.launch()
