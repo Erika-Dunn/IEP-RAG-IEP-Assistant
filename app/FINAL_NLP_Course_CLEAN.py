@@ -1,18 +1,15 @@
 # FINAL_NLP_Course_CLEAN.py
-# ✅ Core logic: RAG pipeline, OpenAI LLM call, student profile processing
+# ✅ Core logic: RAG pipeline, Hugging Face LLM call, student profile processing
 
 import os
 import json
 import pickle
 import re
 import faiss
-import openai
-from openai import OpenAI
 import pandas as pd
+import torch
 from sentence_transformers import SentenceTransformer
-
-# Load OpenAI API key from environment variable
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
 
 # Load FAISS index and metadata
 INDEX_PATH = os.path.join('data', 'full_rag.index')
@@ -22,6 +19,23 @@ doc_meta = pickle.load(open(META_PATH, "rb"))
 
 # Embedding model
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
+
+# Load local Hugging Face model (Zephyr 7B or similar)
+LLM_NAME = "HuggingFaceH4/zephyr-7b-beta"
+MAX_NEW_TOKENS = 300
+
+generator = pipeline(
+    "text-generation",
+    model=AutoModelForCausalLM.from_pretrained(
+        LLM_NAME,
+        device_map="auto",
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        trust_remote_code=True,
+        low_cpu_mem_usage=True,
+    ),
+    tokenizer=AutoTokenizer.from_pretrained(LLM_NAME),
+    max_new_tokens=MAX_NEW_TOKENS,
+)
 
 # --- Vector Search ---
 def vector_search(query: str, k: int = 3) -> list:
@@ -71,25 +85,19 @@ QUESTION:
 {question}
 """
 
-# --- OpenAI LLM ---
+# --- Local LLM ---
 def llm(prompt: str) -> dict:
     print("LLM PROMPT:\n", prompt)
+    response = generator(prompt)[0]["generated_text"]
 
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": "You are an assistant that writes SMART IEP goals based on a student profile and career standards. Return valid JSON only."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.7
-    )
-
-    output = response.choices[0].message.content
     try:
-        return json.loads(output)
+        json_start = response.find('{')
+        json_end = response.rfind('}') + 1
+        json_content = response[json_start:json_end]
+        return json.loads(json_content)
     except json.JSONDecodeError:
         print("⚠️ Warning: LLM did not return valid JSON. Returning raw output.")
-        return {"raw_output": output}
+        return {"raw_output": response.strip()}
 
 # --- Main Pipeline ---
 def process_student_profile(profile_text: str) -> dict:
