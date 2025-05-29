@@ -1,6 +1,12 @@
 import gradio as gr
 from FINAL_NLP_Course_CLEAN import process_student_profile
 
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+import warnings
+warnings.filterwarnings("ignore")
+
 def generate_goals(student_name, grade, career, strengths, needs):
     profile_text = f"""
     {student_name} is in grade {grade} and is interested in {career}.
@@ -50,4 +56,5 @@ with gr.Blocks() as demo:
         outputs=output
     )
 
-demo.launch()
+# ✅ Public URL for Colab
+demo.launch(share=True)
