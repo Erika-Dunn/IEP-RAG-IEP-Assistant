@@ -9,5 +9,6 @@ All source data used in this project is located in [`app/data/`](app/data/), inc
 
 - `ooh_data.json` – scraped career data from BLS
 - `iep_sample.pdf` – sample IEP goals from NASET
+- Oregon data is scraped from website and not provided in the data sources
 
 Note: These are for educational/demo use only.
