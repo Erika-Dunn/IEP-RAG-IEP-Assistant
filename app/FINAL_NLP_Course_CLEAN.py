@@ -7,11 +7,12 @@ import pickle
 import re
 import faiss
 import openai
+from openai import OpenAI
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 
 # Load OpenAI API key from environment variable
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Load FAISS index and metadata
 INDEX_PATH = os.path.join('data', 'full_rag.index')
@@ -73,7 +74,8 @@ QUESTION:
 # --- OpenAI LLM ---
 def llm(prompt: str) -> dict:
     print("LLM PROMPT:\n", prompt)
-    response = openai.ChatCompletion.create(
+
+    response = client.chat.completions.create(
         model="gpt-4",
         messages=[
             {"role": "system", "content": "You are an assistant that writes SMART IEP goals based on a student profile and career standards. Return valid JSON only."},
@@ -81,7 +83,8 @@ def llm(prompt: str) -> dict:
         ],
         temperature=0.7
     )
-    output = response["choices"][0]["message"]["content"]
+
+    output = response.choices[0].message.content
     try:
         return json.loads(output)
     except json.JSONDecodeError:
