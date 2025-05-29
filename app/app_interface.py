@@ -13,11 +13,18 @@ def generate_goals(student_name, grade, career, strengths, needs):
     Strengths: {strengths}
     Needs: {needs}
     """
-    result = process_student_profile(profile_text)
 
-    # Safely format lists for display
-    benchmarks = "- " + "\n- ".join(result.get("benchmarks", []))
-    alignment = "- " + "\n- ".join(result.get("alignment", []))
+    try:
+        result = process_student_profile(profile_text)
+    except Exception as e:
+        return f"❌ Error: {e}"
+
+    # Format lists with fallbacks
+    benchmarks = result.get("benchmarks") or []
+    alignment = result.get("alignment") or []
+
+    benchmarks_str = "- " + "\n- ".join(benchmarks) if benchmarks else "None"
+    alignment_str = "- " + "\n- ".join(alignment) if alignment else "None"
 
     return f"""
 🎯 Employment Goal:
@@ -30,10 +37,10 @@ def generate_goals(student_name, grade, career, strengths, needs):
 {result.get('annual_goal', 'N/A')}
 
 📌 Benchmarks:
-{benchmarks}
+{benchmarks_str}
 
 📎 Alignment:
-{alignment}
+{alignment_str}
 """
 
 with gr.Blocks() as demo:
