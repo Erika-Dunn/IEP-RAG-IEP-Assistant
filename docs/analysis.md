@@ -1,4 +1,4 @@
-## 5. Documentation and Analysis
+## Documentation and Analysis
 
 ### Data Collection and Preprocessing Methods
 
