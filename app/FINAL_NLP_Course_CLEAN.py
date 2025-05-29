@@ -1,10 +1,5 @@
-#!/usr/bin/env python
-# coding: utf-8
+# ✅ FINAL_NLP_Course_CLEAN.py — Cleaned up for OpenAI integration and modular RAG logic
 
-# # Section 0: Prepping for GitHub
-
-# # Section 1: Data Collection and Preprocessing
-# Import Libraries
 import requests
 from bs4 import BeautifulSoup
 import pdfplumber
@@ -19,229 +14,36 @@ import os
 import openai
 import json
 
+# ✅ Load OpenAI key from environment only
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Load BLS OOH XML and chunk
-file_path = os.path.join('data', 'ooh_occupations.xml')
-tree = ET.parse(file_path)
-root = tree.getroot()
-
-def extract_text(el):
-    return ''.join(el.itertext()).strip() if el is not None else None
-
-data = []
-for occ in root.findall('.//occupation'):
-    data.append({
-        'job_code': extract_text(occ.find('occupation_code')),
-        'job_title': extract_text(occ.find('title')),
-        'what_they_do': extract_text(occ.find('what_they_do') or occ.find('summary_what_they_do')),
-        'work_environment': extract_text(occ.find('work_environment') or occ.find('summary_work_environment')),
-        'how_to_become': extract_text(occ.find('how_to_become_one') or occ.find('summary_how_to_become_one')),
-        'pay': extract_text(occ.find('pay') or occ.find('summary_pay')),
-        'job_outlook': extract_text(occ.find('job_outlook') or occ.find('summary_outlook')),
-        'similar_occupations': extract_text(occ.find('similar_occupations') or occ.find('summary_similar_occupations'))
-    })
-
-ooh_df = pd.DataFrame(data)
-ooh_chunks = []
-for _, row in ooh_df.iterrows():
-    for sec in ['what_they_do', 'work_environment', 'how_to_become', 'pay', 'job_outlook', 'similar_occupations']:
-        text = row[sec]
-        if pd.notna(text) and text.strip():
-            ooh_chunks.append({
-                'source': 'bls_ooh',
-                'section': sec,
-                'text': re.sub(r'\s+', ' ', text.strip()),
-                'job_code': row['job_code'],
-                'job_title': row['job_title']
-            })
-
-# Oregon IEP - Web and PDF
-url = "https://www.oregon.gov/ode/students-and-family/SpecialEducation/publications/Pages/Oregon-Standard-IEP.aspx"
-soup = BeautifulSoup(requests.get(url, headers={"User-Agent": "Mozilla/5.0"}).text, "html.parser")
-web_lines = [line.strip() for line in soup.get_text("\n").splitlines() if len(line.strip()) > 30]
-web_chunks = [{"source": "oregon_iep_web", "section": f"paragraph_{i+1}", "text": line, "job_code": None, "job_title": None}
-              for i, line in enumerate(web_lines) if len(line.split()) > 10]
-
-pdf_links = [a['href'] if a['href'].startswith('http') else f"https://www.oregon.gov{a['href']}"
-             for a in soup.find_all("a", href=True) if '.pdf' in a['href'].lower()]
-
-os.makedirs("oregon_iep_pdfs", exist_ok=True)
-pdf_chunks = []
-for i, link in enumerate(pdf_links):
-    filename = f"oregon_iep_pdfs/doc_{i+1}.pdf"
-    r = requests.get(link)
-    with open(filename, "wb") as f:
-        f.write(r.content)
-    with pdfplumber.open(filename) as pdf:
-        for j, page in enumerate(pdf.pages):
-            txt = page.extract_text() or ""
-            for k, chunk in enumerate(txt.split("\n\n")):
-                if len(chunk.split()) > 10:
-                    pdf_chunks.append({
-                        "source": "oregon_iep_pdf",
-                        "section": f"doc_{i+1}_pg{j+1}_blk{k+1}",
-                        "text": chunk.strip(),
-                        "job_code": None,
-                        "job_title": None
-                    })
-
-# NASET IEP PDF Chunking
-naset_path = os.path.join('data', 'Completed_Sample_IEP.pdf')
-with pdfplumber.open(naset_path) as pdf:
-    naset_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-
-naset_chunks = []
-raw_chunks = re.split(r'(Measurable Postsecondary Goal.*?:|Annual Goal.*?:|Short[- ]Term Objective.*?:)', naset_text)
-for i in range(1, len(raw_chunks), 2):
-    label = raw_chunks[i].strip()
-    content = raw_chunks[i+1].strip()
-    if len(content.split()) >= 10:
-        naset_chunks.append({
-            "source": "naset_iep_example",
-            "section": label,
-            "text": content,
-            "job_code": None,
-            "job_title": None
-        })
-
-# Merge all chunks into one DF
-combined_df = pd.DataFrame(ooh_chunks + web_chunks + pdf_chunks + naset_chunks)
-
-# Embedding + FAISS
-model = SentenceTransformer("all-MiniLM-L6-v2")
-texts = combined_df['text'].tolist()
-embeddings = model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
-faiss.normalize_L2(embeddings)
-
-index = faiss.IndexFlatL2(embeddings.shape[1])
-index.add(embeddings)
-
-faiss.write_index(index, os.path.join('data', 'full_rag.index'))
-with open(os.path.join('data', 'full_rag_metadata.pkl'), "wb") as f:
-    pickle.dump(combined_df.to_dict(orient='records'), f)
-
-print(f"✅ Combined RAG index created with {len(combined_df)} records.")
-
-
-# # Section 2: RAG Pipeline Implementation
-
-# # Section 2 · RAG Retrieval + Generation (Zephyr 7B, FAISS, Colab Pro)
-
-import os, pickle, torch
-import faiss
-from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-
-
-# In[ ]:
-
-
-# Config
+# ✅ FAISS config
 INDEX_PATH     = os.path.join('data', 'full_rag.index')
 META_PATH      = os.path.join('data', 'full_rag_metadata.pkl')
 EMBED_MODEL    = "sentence-transformers/all-MiniLM-L6-v2"
-LLM_NAME       = "HuggingFaceH4/zephyr-7b-beta"
 RETRIEVE_K     = 3
-MAX_NEW_TOKENS = 300
-DEVICE         = 0 if torch.cuda.is_available() else "cpu"
 
-
-# In[ ]:
-
-
-# Load FAISS index and metadata
+# ✅ Load FAISS index and metadata
 faiss_index = faiss.read_index(INDEX_PATH)
 doc_meta    = pickle.load(open(META_PATH, "rb"))
-print(f"✅ FAISS index loaded with {faiss_index.ntotal} vectors")
 
+# ✅ Retrieve top-K matching documents
 
-# In[ ]:
-
-
-# Embed query + retrieve top K
 def retrieve(query: str, k: int = RETRIEVE_K, embedder=None):
     embedder = embedder or SentenceTransformer(EMBED_MODEL)
     q_vec = embedder.encode(query, normalize_embeddings=True)
     D, I  = faiss_index.search(q_vec.reshape(1, -1).astype("float32"), k)
     return [dict(doc_meta[i], sim=float(score)) for score, i in zip(D[0], I[0])]
 
-
-# In[ ]:
-
-
-# Prompt builder
+# ✅ Prompt builders
 SYSTEM_PROMPT = (
     "You are an educational planning assistant. "
     "Use only the CONTEXT provided. Cite facts as [SOURCE:<section>]."
 )
 
-def make_prompt(question: str, docs: list[dict]) -> str:
-    context = "\n\n---\n".join(
-        f"{doc['text']} [SOURCE:{doc['section']}]"
-        for doc in docs
-    )
-    return f"<|system|>\n{SYSTEM_PROMPT}\n<|user|>\nCONTEXT:\n{context}\n\nQUESTION:\n{question}\n<|assistant|>\n"
-
-
-# In[ ]:
-
-
-# Load Zephyr-7B safely on GPU (if available)
-generator = pipeline(
-    "text-generation",
-    model=AutoModelForCausalLM.from_pretrained(
-        LLM_NAME,
-        device_map="auto",
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-        trust_remote_code=True,
-        low_cpu_mem_usage=True
-    ),
-    tokenizer=AutoTokenizer.from_pretrained(
-        LLM_NAME,
-        use_fast=True,
-        trust_remote_code=True
-    ),
-    max_new_tokens=MAX_NEW_TOKENS
-)
-
-
-# In[ ]:
-
-
-# RAG pipeline with token-safe truncation and attention mask
-def rag_chat(question: str, k: int = RETRIEVE_K, max_new_tokens: int = MAX_NEW_TOKENS):
-    hits = retrieve(question, k=k)
-    prompt = make_prompt(question, hits)
-
-    tokenizer = generator.tokenizer
-    model_max_len = 8192
-    input_max_len = model_max_len - max_new_tokens
-
-    encodings = tokenizer(prompt, return_tensors="pt", truncation=True,
-                          padding=True, max_length=input_max_len)
-    input_ids = encodings.input_ids.to(generator.model.device)
-    attention_mask = encodings.attention_mask.to(generator.model.device)
-
-    output_ids = generator.model.generate(
-        input_ids=input_ids,
-        attention_mask=attention_mask,
-        max_new_tokens=max_new_tokens,
-        pad_token_id=tokenizer.eos_token_id
-    )
-
-    output = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    answer = output.split("<|assistant|>")[-1].strip()
-    return answer, hits
-
-
-# # Section 3: Prompt Engineering
-# RAG Goal Generation Pipeline – Gradio-Ready
-# --- Prompt Builders ---
-
 def extract_student_info_prompt(profile_text):
     return f"""Extract the following structured information from the student's profile text below.
-If information is not present, write "missing". Output in JSON format with these fields:
+If information is not present, write \"missing\". Output in JSON format with these fields:
 - name
 - age
 - grade level
@@ -268,24 +70,17 @@ Use the following profile:
 {structured_profile_json}
 """
 
-SYSTEM_PROMPT = (
-    "You are an educational planning assistant. "
-    "Use only the CONTEXT provided. Cite facts as [SOURCE:<section>]."
-)
-
 def make_prompt(question: str, docs: list[dict]) -> str:
     context = "\n\n---\n".join(
         f"{doc['text']} [SOURCE:{doc['section']}]" for doc in docs
     )
     return f"<|system|>\n{SYSTEM_PROMPT}\n<|user|>\nCONTEXT:\n{context}\n\nQUESTION:\n{question}\n<|assistant|>\n"
 
-# --- Mock LLM + Search (Replace in production) ---
+# ✅ OpenAI-based LLM function
 
 def llm(prompt: str) -> dict:
-    print("LLM PROMPT:\n", prompt)
-
     response = openai.ChatCompletion.create(
-        model="gpt-4",  # or "gpt-3.5-turbo"
+        model="gpt-4",
         messages=[
             {"role": "system", "content": "You are an assistant that writes SMART IEP goals based on a student profile and career standards. Return valid JSON only."},
             {"role": "user", "content": prompt}
@@ -294,68 +89,19 @@ def llm(prompt: str) -> dict:
     )
 
     output = response["choices"][0]["message"]["content"]
-
     try:
         return json.loads(output)
     except json.JSONDecodeError:
-        print("⚠️ Warning: LLM did not return valid JSON. Returning raw output.")
         return {"raw_output": output}
-def vector_search(query: str) -> list:
-    return [
-        {"text": "Retail sales roles require strong communication, customer service, and product knowledge.", "section": "OOH-Retail"},
-        {"text": "21st Century standards emphasize collaboration, communication, and critical thinking.", "section": "OR-21stCentury"}
-    ]
 
-# --- Main Processing Pipeline ---
+# ✅ Processing pipeline
 
 def process_student_profile(profile_text: str):
-    # Step 1: Extract structured fields
     extraction_prompt = extract_student_info_prompt(profile_text)
     structured_info = llm(extraction_prompt)
-
-    # Step 2: Search vector DB using postsecondary employment goal
     goal_query = structured_info.get("postsecondary goal (employment)", "undecided")
-    docs = vector_search(goal_query)
-
-    # Step 3: Generate SMART goal prompt
+    docs = retrieve(goal_query)
     question = generate_goals_prompt(structured_info)
     full_prompt = make_prompt(question, docs)
-
-    # Step 4: Generate final goals
     return llm(full_prompt)
 
-# --- Example Runs for Multiple Students including Clarence (Case Study) ---
-
-if __name__ == "__main__":
-    students = {
-        "Clarence": """
-        Clarence is a 15-year-old sophomore with a behavior disorder.
-        He completed the O*Net Interest Profiler and showed strong interest in the 'Enterprising' category.
-        Career interests include retail sales and driver/sales worker.
-        Clarence prefers hands-on learning over academic instruction.
-        He expressed in his Vision for the Future interview that he would like to work at Walmart.
-        """,
-        "Marisol": """
-        Marisol is a 17-year-old senior who enjoys caring for animals and is detail-oriented.
-        She completed the Interest Profiler and scored high in Social and Realistic domains.
-        She wants to be a veterinary assistant and has volunteered at the local animal shelter.
-        She needs support in written communication and managing time across multiple assignments.
-        """,
-        "DeShawn": """
-        DeShawn is a 16-year-old junior with ADHD. He is creative and excels in hands-on technical tasks.
-        He has expressed interest in automotive repair and has participated in a school-sponsored job shadow at a local mechanic’s shop.
-        DeShawn struggles with organization and task completion.
-        """,
-        "Linh": """
-        Linh is a 14-year-old freshman who recently moved to the U.S. and is an English language learner.
-        She shows strength in mathematics and visual problem solving. Her interests include graphic design and architecture.
-        She needs support with English reading comprehension and academic vocabulary.
-        """
-    }
-
-    for name, profile in students.items():
-        print(f"\U0001F393 Generating IEP for: {name}")
-        results = process_student_profile(profile)
-        for k, v in results.items():
-            print(f"{k.upper()}:\n{v}\n")
-        print("="*80)
