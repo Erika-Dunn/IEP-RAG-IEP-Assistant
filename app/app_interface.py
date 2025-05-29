@@ -19,11 +19,16 @@ def generate_goals(student_name, grade, career, strengths, needs):
     """
     result = process_student_profile(profile_text)
 
-    # Safely format lists if present
-    benchmarks = "- " + "\n- ".join(result.get("benchmarks", [])) if isinstance(result.get("benchmarks"), list) else result.get("benchmarks", "N/A")
-    alignment = "- " + "\n- ".join(result.get("alignment", [])) if isinstance(result.get("alignment"), list) else result.get("alignment", "N/A")
+    # --- Handle structured JSON or fallback to raw output ---
+    if isinstance(result, dict) and any(k in result for k in ["employment_goal", "annual_goal", "raw_output"]):
+        if "raw_output" in result:
+            # Assume raw_output is a full-text response from Hugging Face
+            return f"📄 Raw Response from LLM:\n\n{result['raw_output']}"
+        else:
+            benchmarks = "- " + "\n- ".join(result.get("benchmarks", [])) if isinstance(result.get("benchmarks"), list) else result.get("benchmarks", "N/A")
+            alignment = "- " + "\n- ".join(result.get("alignment", [])) if isinstance(result.get("alignment"), list) else result.get("alignment", "N/A")
 
-    return f"""
+            return f"""
 🎯 Employment Goal:
 {result.get('employment_goal', 'N/A')}
 
@@ -39,6 +44,8 @@ def generate_goals(student_name, grade, career, strengths, needs):
 📎 Alignment:
 {alignment}
 """
+    else:
+        return "⚠️ Unexpected output format. Please check the input or try again."
 
 # --- Gradio UI ---
 with gr.Blocks() as demo:
