@@ -14,8 +14,8 @@ from sentence_transformers import SentenceTransformer
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Load FAISS index and metadata
-INDEX_PATH = os.path.join('..', 'data', 'full_rag.index')
-META_PATH = os.path.join('..', 'data', 'full_rag_metadata.pkl')
+INDEX_PATH = os.path.join('data', 'full_rag.index')
+META_PATH = os.path.join('data', 'full_rag_metadata.pkl')
 faiss_index = faiss.read_index(INDEX_PATH)
 doc_meta = pickle.load(open(META_PATH, "rb"))
 
