@@ -1,6 +1,6 @@
 import requests
 
-API_URL = "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-alpha"
+API_URL = "https://api-inference.huggingface.co/models/declare-lab/flan-alpaca-base"
 HF_TOKEN = "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"
 
 headers = {
@@ -54,4 +54,5 @@ def generate_iep_goals(student_info, retrieved_docs):
     retrieved_text = "\n".join([doc.get("content", "") for doc in retrieved_docs])
     prompt = build_prompt(student_info, retrieved_text)
     return query_hf_model(prompt).strip()
+
 
