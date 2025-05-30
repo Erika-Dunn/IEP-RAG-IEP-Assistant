@@ -5,6 +5,7 @@ import json
 import pickle
 import faiss
 import torch
+import re
 from sentence_transformers import SentenceTransformer
 from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
 
@@ -46,9 +47,9 @@ llm_pipeline = pipeline("text2text-generation", model=model, tokenizer=tokenizer
 def build_prompt(student_info: str, retrieved_chunks: str) -> str:
     return f"""You are an expert in developing IEP transition goals that are measurable, aligned to standards, and follow IDEA 2004.
 
-Respond ONLY in valid JSON format. Your output must start with a curly brace `{` and be parseable by `json.loads()`.
+Return your response ONLY as a raw JSON object (not a Python list or string). Your output must start with `{{` and be fully parsable by `json.loads()`.
 
-Use this structure:
+Here is the required JSON structure:
 
 {{
   "employment_goal": "Measurable postsecondary employment goal.",
@@ -61,7 +62,7 @@ Use this structure:
   ]
 }}
 
-If anything is unclear or missing, make a reasonable assumption and proceed.
+If any detail is missing, make a professional assumption.
 
 ### Student Profile:
 {student_info}
@@ -71,7 +72,7 @@ If anything is unclear or missing, make a reasonable assumption and proceed.
 """
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Generation function used in Gradio interface
+# Goal generator with JSON recovery fallback
 # ─────────────────────────────────────────────────────────────────────────────
 
 def generate_iep_goals(student_info: str, retrieved_docs: list) -> dict:
@@ -82,8 +83,12 @@ def generate_iep_goals(student_info: str, retrieved_docs: list) -> dict:
     result = response[0]["generated_text"].strip()
 
     try:
-        json_start = result.find("{")
-        return json.loads(result[json_start:])
+        # Try to extract the first JSON-like block
+        json_match = re.search(r'\{.*\}', result, re.DOTALL)
+        if json_match:
+            return json.loads(json_match.group())
+        else:
+            raise ValueError("No valid JSON object found in output.")
     except Exception as e:
         return {
             "error": "Failed to parse LLM output as JSON.",
