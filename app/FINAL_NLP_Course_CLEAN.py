@@ -38,7 +38,7 @@ generator = pipeline(
     model=model,
     tokenizer=tokenizer,
     max_new_tokens=MAX_NEW_TOKENS,
-    return_full_text=False,       # ← prevents echo
+    return_full_text=False,           # ← prevents it from echoing the prompt
 )
 
 # --- Vector Search ---
@@ -81,9 +81,15 @@ Use the following profile:
 """
     
 def make_prompt(question: str, docs: list[dict]) -> str:
-    context = "\n\n---\n".join(f"{doc['text'][:1000]} [SOURCE:{doc['section']}]" for doc in docs)
+    # only keep the first 500 chars of each doc to avoid overload
+    context = "\n\n---\n".join(
+        f"{doc['text'][:500]} [SOURCE:{doc['section']}]"
+        for doc in docs
+    )
     return f"""
-You are an educational planning assistant. Use only the CONTEXT provided. Cite facts as [SOURCE:<section>].
+You are an educational planning assistant.  
+**Use ONLY the CONTEXT below**—do NOT repeat it in your answer.  
+Answer in JSON with keys: academic_goal, independent_living_goal, career_preparation_goal.
 
 CONTEXT:
 {context}
