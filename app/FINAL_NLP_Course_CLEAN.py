@@ -64,18 +64,21 @@ If information is not present, write \"missing\". Output in JSON format with the
 Student profile:
 \"\"\"{profile_text}\"\"\"
 """
-
+    
 def generate_goals_prompt(structured_profile_json):
     return f"""Based on the student's profile and postsecondary employment and education goals,
-write three SMART annual IEP goals — one for each of the following areas: academic achievement,
-independent living skills, and career preparation. Goals must follow this structure:
+return a JSON object with the following fields:
+- academic_goal
+- independent_living_goal
+- career_preparation_goal
 
+Each value should be a SMART IEP goal in this format:
 [Condition], [Student] will [behavior] [criteria] [timeframe].
 
 Use the following profile:
 {structured_profile_json}
 """
-
+    
 def make_prompt(question: str, docs: list[dict]) -> str:
     context = "\n\n---\n".join(f"{doc['text'][:1000]} [SOURCE:{doc['section']}]" for doc in docs)
     return f"""
@@ -92,28 +95,18 @@ QUESTION:
 def llm(prompt: str) -> dict:
     print("LLM PROMPT:\n", prompt)
     response = generator(prompt)[0]["generated_text"]
-
-    # Log raw output to debug structure
     print("LLM RAW OUTPUT:\n", response)
 
-    # Try to extract structured JSON if present
+    # Try to extract JSON-like structure from response
     try:
         json_start = response.find('{')
         json_end = response.rfind('}') + 1
-        if json_start != -1 and json_end > json_start:
-            json_content = response[json_start:json_end]
-            parsed = json.loads(json_content)
-            return parsed
+        json_content = response[json_start:json_end]
+        parsed = json.loads(json_content)
+        return parsed
     except Exception as e:
         print(f"⚠️ JSON Parse Error: {e}")
-
-    # Try to extract just the 'ANSWER:' section for Hugging Face completions
-    if "ANSWER:" in response:
-        answer_text = response.split("ANSWER:")[1].strip()
-        return {"raw_output": answer_text}
-    
-    # Fallback: return entire string if all else fails
-    return {"raw_output": response.strip()}
+        return {"raw_output": response.strip()}
 
 # --- Main Pipeline ---
 def process_student_profile(profile_text: str) -> dict:
