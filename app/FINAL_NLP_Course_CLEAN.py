@@ -1,12 +1,12 @@
-# FINAL_NLP_Course_CLEAN.py
+# FINAL_NLP_Course_CLEAN.py (Colab-safe version)
 
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
 
-model_name = "HuggingFaceH4/zephyr-7b-beta"
+model_name = "tiiuae/falcon-rw-1b"  # lightweight model that works on CPU
 
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(model_name)
-llm_pipeline = pipeline("text-generation", model=model, tokenizer=tokenizer, device=0)
+llm_pipeline = pipeline("text-generation", model=model, tokenizer=tokenizer, device=-1)  # <- FORCE CPU
 
 def build_prompt(student_info, retrieved_chunks):
     return f"""You are an expert in creating Individualized Education Program (IEP) goals. 
@@ -38,6 +38,5 @@ Objectives:
 def generate_iep_goals(student_info, retrieved_docs):
     retrieved_text = "\n".join([doc.get("content", "") for doc in retrieved_docs])
     prompt = build_prompt(student_info, retrieved_text)
-    response = llm_pipeline(prompt, max_new_tokens=512, do_sample=True, temperature=0.7)
+    response = llm_pipeline(prompt, max_new_tokens=256, do_sample=True, temperature=0.7)
     return response[0]['generated_text'].split(prompt)[-1].strip()
-
