@@ -20,9 +20,9 @@ doc_meta = pickle.load(open(META_PATH, "rb"))
 # Embedding model
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
-# Load local Hugging Face model (Zephyr 7B or similar)
-LLM_NAME = "HuggingFaceH4/zephyr-7b-beta"
-MAX_NEW_TOKENS = 300
+# Replace existing LLM_NAME / MAX_NEW_TOKENS lines with:
+LLM_NAME = "mistralai/Mistral-7B-Instruct-v0.2"
+MAX_NEW_TOKENS = 200
 
 tokenizer = AutoTokenizer.from_pretrained(LLM_NAME)
 model = AutoModelForCausalLM.from_pretrained(
@@ -33,14 +33,19 @@ model = AutoModelForCausalLM.from_pretrained(
     low_cpu_mem_usage=True,
 )
 
+# ↓ Delete or comment out your old generator definition, then paste this ↓
 generator = pipeline(
     "text-generation",
-    model=model,
-    tokenizer=tokenizer,
+    model=AutoModelForCausalLM.from_pretrained(
+        LLM_NAME,
+        device_map="auto",
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+    ),
+    tokenizer=AutoTokenizer.from_pretrained(LLM_NAME),
     max_new_tokens=MAX_NEW_TOKENS,
-    return_full_text=False,    # don’t echo prompt back
     do_sample=False,           # deterministic decoding
-    temperature=0,             # no randomness
+    temperature=0.0,           # follow instructions exactly
+    return_full_text=False     # don't echo the prompt back
 )
 
 # --- Vector Search ---
@@ -119,13 +124,16 @@ def llm(prompt: str) -> dict:
 
 # --- Main Pipeline ---
 def process_student_profile(profile_text: str) -> dict:
-    extraction_prompt = extract_student_info_prompt(profile_text)
-    structured_info = llm(extraction_prompt)
+    # … extraction prompt, llm, etc …
 
     goal_query = structured_info.get("postsecondary goal (employment)", "undecided")
     docs = vector_search(goal_query)
 
+    # 🔥 Keep only the BLS OOH sections (source == 'bls_ooh')
+    ooh_docs = [d for d in docs if d["source"] == "bls_ooh"]
+    # fallback to original docs if no OOH found
+    docs = ooh_docs or docs
+
     question = generate_goals_prompt(structured_info)
     full_prompt = make_prompt(question, docs)
-
     return llm(full_prompt)
