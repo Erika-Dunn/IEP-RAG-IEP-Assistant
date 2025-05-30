@@ -1,16 +1,17 @@
 # FINAL_NLP_Course_CLEAN.py
 
 import os, json, pickle, faiss
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 from sentence_transformers import SentenceTransformer
+from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
+import torch
 
-# ─── 1) Load FAISS Index & Metadata ─────────────────────────────────────────────
+# ─── 1. Load FAISS Index and Metadata ────────────────────────────────────────────
 INDEX_PATH = os.path.join('data','full_rag.index')
 META_PATH  = os.path.join('data','full_rag_metadata.pkl')
 faiss_index = faiss.read_index(INDEX_PATH)
-doc_meta    = pickle.load(open(META_PATH, 'rb'))
+doc_meta    = pickle.load(open(META_PATH,'rb'))
 
-# ─── 2) Sentence Embedding Model ────────────────────────────────────────────────
+# ─── 2. Embedder for Retrieval ───────────────────────────────────────────────────
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
 def vector_search(query: str, k: int = 3) -> list:
@@ -18,81 +19,60 @@ def vector_search(query: str, k: int = 3) -> list:
     D, I = faiss_index.search(vec.astype("float32"), k)
     return [dict(doc_meta[i], sim=float(D[0][j])) for j, i in enumerate(I[0])]
 
-# ─── 3) Load Local LLM ──────────────────────────────────────────────────────────
+# ─── 3. Load Local LLM ───────────────────────────────────────────────────────────
 model_name = "google/flan-t5-base"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model     = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+tokenizer  = AutoTokenizer.from_pretrained(model_name)
+model      = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 llm_pipeline = pipeline("text2text-generation", model=model, tokenizer=tokenizer, device=-1)
 
-# ─── 4) Prompt Template ─────────────────────────────────────────────────────────
-def build_prompt(student_info: str, retrieved_docs: list) -> str:
-    retrieved_text = "\n\n".join(doc.get("content", "")[:1000] for doc in retrieved_docs[:2]).strip()
-    if not retrieved_text:
-        retrieved_text = (
-            "Retail sales workers assist customers, handle purchases, and maintain store presentation. "
-            "They need interpersonal and communication skills and typically receive on-the-job training."
-        )
-
+# ─── 4. Prompt Constructor ───────────────────────────────────────────────────────
+def build_prompt(student_info: str, retrieved_text: str) -> str:
     return f"""
 You are an expert in developing IEP transition goals that are measurable, aligned to standards, and follow IDEA 2004.
 
-Return ONLY valid JSON (no explanations). The JSON must contain **exactly one** key for each of the following:
+Return your response ONLY as a raw JSON object (not a Python list or string). Your output must start with {{ and be fully parsable by `json.loads()`.
 
-- "employment_goal"
-- "education_goal"
-- "annual_goal"
-- "objectives" → this must be a list of 3 unique strings.
-
-If unsure, make a professional assumption. Here's the expected format:
+Here is the required JSON structure:
 
 {{
-  "employment_goal": "Clarence will obtain a full-time job at Walmart.",
-  "education_goal": "Clarence will complete on-the-job training after high school.",
-  "annual_goal": "Clarence will demonstrate customer service skills in a retail simulation.",
+  "employment_goal": "Measurable postsecondary employment goal.",
+  "education_goal": "Measurable postsecondary education/training goal.",
+  "annual_goal": "Annual IEP goal aligned to state standards.",
   "objectives": [
-    "Greet customers appropriately during role-play activities.",
-    "Maintain eye contact and respond to customer questions.",
-    "Complete a customer interaction checklist with 90% accuracy."
+    "Short-term objective 1 supporting the annual goal.",
+    "Short-term objective 2 supporting the annual goal.",
+    "Short-term objective 3 supporting the annual goal."
   ]
 }}
+
+If any detail is missing, make a professional assumption.
 
 ### Student Profile:
 {student_info}
 
 ### Career and Educational Standards:
 {retrieved_text}
-"""
+""".strip()
 
-# ─── 5) Goal Generator ──────────────────────────────────────────────────────────
+# ─── 5. IEP Generation Function ─────────────────────────────────────────────────
 def generate_iep_goals(student_info: str, retrieved_docs: list) -> dict:
-    prompt = build_prompt(student_info, retrieved_docs)
+    retrieved_text = "\n".join([doc.get("content", "") for doc in retrieved_docs])
+    prompt = build_prompt(student_info, retrieved_text)
 
     try:
-        response = llm_pipeline(prompt, max_new_tokens=512, do_sample=False)[0]["generated_text"].strip()
-
-        # TEMP debug print:
-        print("==== RAW OUTPUT ====")
-        print(response[:2000])  # Only print first 2k chars
-        print("====================")
-
-        if not response.startswith("{"):
-            response = "{" + response.split("{", 1)[-1]
-
-        json_start = response.find("{")
-        json_end = response.rfind("}")
-        json_str = response[json_start:json_end + 1]
-
-        parsed = json.loads(json_str)
-
-        if isinstance(parsed.get("objectives"), str):
-            parsed["objectives"] = [parsed["objectives"]]
-
-        parsed["objectives"] = list(dict.fromkeys(parsed.get("objectives", [])))[:3]
-
-        return parsed
+        response = llm_pipeline(prompt, max_new_tokens=1024)
+        result = response[0]["generated_text"].strip()
+        if not result.startswith("{"):
+            return {
+                "error": "Model returned no output.",
+                "prompt": prompt,
+                "retrieved_text": retrieved_text,
+                "raw_output": result
+            }
+        return json.loads(result)
     except Exception as e:
         return {
             "error": "Failed to parse LLM output as JSON.",
-            "raw_output": response,
+            "raw_output": result if 'result' in locals() else "",
             "exception": str(e)
         }
