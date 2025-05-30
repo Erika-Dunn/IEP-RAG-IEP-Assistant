@@ -124,16 +124,21 @@ def llm(prompt: str) -> dict:
 
 # --- Main Pipeline ---
 def process_student_profile(profile_text: str) -> dict:
-    # … extraction prompt, llm, etc …
+    # 1) Extract structured info
+    extraction_prompt = extract_student_info_prompt(profile_text)
+    structured_info = llm(extraction_prompt)
 
+    # 2) Retrieve context docs
     goal_query = structured_info.get("postsecondary goal (employment)", "undecided")
     docs = vector_search(goal_query)
 
-    # 🔥 Keep only the BLS OOH sections (source == 'bls_ooh')
-    ooh_docs = [d for d in docs if d["source"] == "bls_ooh"]
-    # fallback to original docs if no OOH found
+    # ← Paste the snippet here:
+    ooh_docs = [d for d in docs if d.get("source") == "bls_ooh"]
     docs = ooh_docs or docs
 
+    # 3) Build the LLM prompt
     question = generate_goals_prompt(structured_info)
     full_prompt = make_prompt(question, docs)
+
+    # 4) Call the LLM
     return llm(full_prompt)
