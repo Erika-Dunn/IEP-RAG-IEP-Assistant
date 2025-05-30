@@ -90,7 +90,14 @@ def generate_iep_goals(student_info: str, retrieved_docs: list) -> dict:
         relevant_docs = retrieved_docs
 
     # Clean up HTML and join
-    retrieved_text = "\n".join([strip_html(doc.get("content", "")) for doc in relevant_docs])
+    retrieved_text = "\n".join([strip_html(doc.get("content", "")) for doc in relevant_docs]).strip()
+
+    if not retrieved_text:
+        retrieved_text = (
+            "No specific career or educational standards were retrieved. "
+            "Use the student's profile and make professional assumptions about appropriate job skills and training needs based on typical entry-level employment in their interest area."
+    )
+
 
     # Build prompt
     prompt = build_prompt(student_info, retrieved_text)
