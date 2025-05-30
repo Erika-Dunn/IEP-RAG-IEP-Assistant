@@ -1,5 +1,3 @@
-# FINAL_NLP_Course_CLEAN.py
-
 import os, json, pickle, faiss
 from sentence_transformers import SentenceTransformer
 from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
@@ -26,11 +24,19 @@ model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
 llm_pipeline = pipeline("text2text-generation", model=model, tokenizer=tokenizer)
 
-# ─── 4) Prompt Template ──────────────────────────────────────────────────────────
-def build_prompt(student_info: str, standards_text: str) -> str:
+# ─── 4) Prompt Constructor ───────────────────────────────────────────────────────
+def build_prompt(student_info: str, retrieved_docs: list) -> str:
+    # Truncate retrieved content to reduce total token length
+    retrieved_text = "\n\n".join(doc.get("content", "")[:1000] for doc in retrieved_docs[:2]).strip()
+    if not retrieved_text:
+        retrieved_text = (
+            "Retail sales workers assist customers in finding products, handling purchases, and maintaining store presentation. "
+            "They need good interpersonal and communication skills, and usually receive on-the-job training."
+        )
+
     return f"""You are an expert in developing IEP transition goals that are measurable, aligned to standards, and follow IDEA 2004.
 
-Return your response ONLY as a valid JSON object that starts with {{ and matches this structure:
+Return your response as a JSON object that starts with {{ and contains only the following keys:
 
 {{
   "employment_goal": "...",
@@ -43,34 +49,34 @@ Return your response ONLY as a valid JSON object that starts with {{ and matches
   ]
 }}
 
-Student Info:
+If any detail is missing, make a professional assumption.
+
+### Student Profile:
 {student_info}
 
-Relevant Career and Educational Standards:
-{standards_text}
+### Career and Educational Standards:
+{retrieved_text}
 """
 
-# ─── 5) Generation Function ──────────────────────────────────────────────────────
+# ─── 5) Generate Structured IEP Goals ────────────────────────────────────────────
 def generate_iep_goals(student_info: str, retrieved_docs: list) -> dict:
-    # fallback if retrieval failed
-    retrieved_text = "\n".join([doc.get("text", "") for doc in retrieved_docs]).strip()
-    if not retrieved_text:
-        retrieved_text = (
-            "Retail sales workers assist customers in finding products, handling purchases, and maintaining store presentation. "
-            "They need good interpersonal and communication skills, and usually receive on-the-job training."
-        )
-
-    prompt = build_prompt(student_info, retrieved_text)
-
-    response = llm_pipeline(prompt, max_new_tokens=512)
-    result = response[0]["generated_text"].strip()
+    prompt = build_prompt(student_info, retrieved_docs)
 
     try:
-        json_start = result.find("{")
-        return json.loads(result[json_start:])
+        response = llm_pipeline(prompt, max_new_tokens=512)[0]["generated_text"].strip()
+    except Exception as e:
+        return {
+            "error": "Model returned no output or failed.",
+            "prompt": prompt[:1000],
+            "exception": str(e)
+        }
+
+    try:
+        json_start = response.find("{")
+        return json.loads(response[json_start:])
     except Exception as e:
         return {
             "error": "Failed to parse LLM output as JSON.",
-            "raw_output": result,
+            "raw_output": response,
             "exception": str(e)
         }
