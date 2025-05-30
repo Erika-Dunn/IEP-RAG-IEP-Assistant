@@ -36,7 +36,7 @@ def vector_search(query: str, k: int = 3) -> list:
 # Load local Flan-T5 model for text generation
 # ─────────────────────────────────────────────────────────────────────────────
 
-model_name = "google/flan-t5-small"
+model_name = "google/flan-t5-base"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 llm_pipeline = pipeline("text2text-generation", model=model, tokenizer=tokenizer, device=-1)
@@ -55,9 +55,7 @@ def strip_html(text):
 def build_prompt(student_info: str, retrieved_chunks: str) -> str:
     return f"""You are an expert in developing IEP transition goals that are measurable, aligned to standards, and follow IDEA 2004.
 
-Return your response as a JSON object starting with {{, with no extra text or formatting.
-
-Here is the required JSON structure:
+Your response MUST be a complete and valid JSON object. Do not include any explanation, markdown, or extra characters. Only return the JSON. Begin with '{{' and match the structure below exactly.
 
 {{
   "employment_goal": "Measurable postsecondary employment goal.",
@@ -84,45 +82,43 @@ If any detail is missing, make a professional assumption.
 # ─────────────────────────────────────────────────────────────────────────────
 
 def generate_iep_goals(student_info: str, retrieved_docs: list) -> dict:
-    # Filter irrelevant content (optional: add more advanced logic here)
-    relevant_docs = [doc for doc in retrieved_docs if "retail" in doc.get("text", "").lower()]
-    if not relevant_docs:
-        relevant_docs = retrieved_docs
+    # Clean up retrieved text
+    clean_chunks = [strip_html(doc.get("content", "")) for doc in retrieved_docs]
+    retrieved_text = "\n".join(chunk for chunk in clean_chunks if chunk.strip()).strip()
 
-    # Clean up HTML and join
-    retrieved_text = "\n".join([strip_html(doc.get("content", "")) for doc in relevant_docs]).strip()
-
+    # Fallback if nothing useful retrieved
     if not retrieved_text:
         retrieved_text = (
             "No specific career or educational standards were retrieved. "
             "Use the student's profile and make professional assumptions about appropriate job skills and training needs based on typical entry-level employment in their interest area."
-    )
-
+        )
 
     # Build prompt
     prompt = build_prompt(student_info, retrieved_text)
 
-    # Run the LLM
-    response = llm_pipeline(prompt, max_new_tokens=512)
-    result = response[0].get("generated_text", "").strip()
-
-    if not result:
-        return {
-            "error": "Model returned no output.",
-            "prompt": prompt[:1500],
-            "retrieved_text": retrieved_text[:1000]
-        }
-
+    # Run generation
     try:
+        response = llm_pipeline(prompt, max_new_tokens=512)
+        result = response[0].get("generated_text", "").strip()
+
+        if not result or len(result) < 20:
+            return {
+                "error": "LLM output was too short or empty.",
+                "raw_output": result,
+                "prompt": prompt[:1000]
+            }
+
+        # Extract JSON
         json_match = re.search(r'\{.*\}', result, re.DOTALL)
         if json_match:
-            return json.loads(json_match.group())
+            parsed = json.loads(json_match.group())
+            normalized = {k.lower(): v for k, v in parsed.items()}
+            return normalized
         else:
-            raise ValueError("No valid JSON object found in output.")
+            raise ValueError("No valid JSON object found.")
     except Exception as e:
         return {
             "error": "Failed to parse LLM output as JSON.",
-            "raw_output": result,
+            "raw_output": result if 'result' in locals() else "",
             "exception": str(e)
         }
-
