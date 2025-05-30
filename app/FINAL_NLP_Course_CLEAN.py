@@ -132,13 +132,19 @@ def process_student_profile(profile_text: str) -> dict:
     goal_query = structured_info.get("postsecondary goal (employment)", "undecided")
     docs = vector_search(goal_query)
 
-    # ← Paste the snippet here:
+    # ← Insert the debug snippet here:
+    print("📚 Context docs for RAG prompt:")
+    for d in docs:
+        print(f" - {d['source']} | {d['section']} -> {d['text'][:100]}…")
+
+    # 2b) (Optional) filter to OOH-only
     ooh_docs = [d for d in docs if d.get("source") == "bls_ooh"]
     docs = ooh_docs or docs
 
-    # 3) Build the LLM prompt
+    # 3) Build and send the prompt
     question = generate_goals_prompt(structured_info)
     full_prompt = make_prompt(question, docs)
 
     # 4) Call the LLM
+    return llm(full_prompt)
     return llm(full_prompt)
