@@ -38,6 +38,7 @@ generator = pipeline(
     model=model,
     tokenizer=tokenizer,
     max_new_tokens=MAX_NEW_TOKENS,
+    return_full_text=False,       # ← prevents echo
 )
 
 # --- Vector Search ---
@@ -97,16 +98,14 @@ def llm(prompt: str) -> dict:
     response = generator(prompt)[0]["generated_text"]
     print("LLM RAW OUTPUT:\n", response)
 
-    # Try to extract JSON-like structure from response
-    try:
-        json_start = response.find('{')
-        json_end = response.rfind('}') + 1
-        json_content = response[json_start:json_end]
-        parsed = json.loads(json_content)
-        return parsed
-    except Exception as e:
-        print(f"⚠️ JSON Parse Error: {e}")
-        return {"raw_output": response.strip()}
+    # If the model used your prompt back, only keep the actual answer 
+    if "Condition:" in response:
+        # Chop away everything up to the first “Condition:”
+        answer = "Condition:" + response.split("Condition:", 1)[1].strip()
+        return {"raw_output": answer}
+
+    # Otherwise just return whatever it gave you
+    return {"raw_output": response.strip()}
 
 # --- Main Pipeline ---
 def process_student_profile(profile_text: str) -> dict:
