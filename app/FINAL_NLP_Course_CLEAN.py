@@ -46,7 +46,9 @@ llm_pipeline = pipeline("text2text-generation", model=model, tokenizer=tokenizer
 def build_prompt(student_info: str, retrieved_chunks: str) -> str:
     return f"""You are an expert in developing IEP transition goals that are measurable, aligned to standards, and follow IDEA 2004.
 
-Given the student's profile and relevant information from career and education standards, create the following in **JSON** format:
+Respond ONLY in valid JSON format. Your output must start with a curly brace `{` and be parseable by `json.loads()`.
+
+Use this structure:
 
 {{
   "employment_goal": "Measurable postsecondary employment goal.",
@@ -59,7 +61,7 @@ Given the student's profile and relevant information from career and education s
   ]
 }}
 
-If required information is missing or ambiguous, make a professional assumption and include it.
+If anything is unclear or missing, make a reasonable assumption and proceed.
 
 ### Student Profile:
 {student_info}
