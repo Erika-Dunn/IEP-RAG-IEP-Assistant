@@ -67,15 +67,18 @@ Student profile:
 """
     
 def generate_goals_prompt(structured_profile_json):
-    return f"""Based on the student’s profile below, return a JSON object with exactly these three keys:
-- academic_goal
-- independent_living_goal
-- career_preparation_goal
+    return f"""Given the student profile below, **return ONLY** a JSON object with exactly these three keys:
 
-Each value must be a SMART annual IEP goal in the format:
+- academic_goal  
+- independent_living_goal  
+- career_preparation_goal  
+
+Each value must be a single SMART IEP goal in the format:
 [Condition], [Student] will [behavior] [criteria] [timeframe].
 
-Profile:
+**Do not** include any extra text, code, or commentary—just the JSON object.
+
+Student profile:
 {structured_profile_json}
 """
     
