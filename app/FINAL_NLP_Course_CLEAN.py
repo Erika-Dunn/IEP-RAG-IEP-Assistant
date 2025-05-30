@@ -26,7 +26,6 @@ llm_pipeline = pipeline("text2text-generation", model=model, tokenizer=tokenizer
 
 # ─── 4) Prompt Constructor ───────────────────────────────────────────────────────
 def build_prompt(student_info: str, retrieved_docs: list) -> str:
-    # Truncate retrieved content to avoid exceeding token limit
     retrieved_text = "\n\n".join(doc.get("content", "")[:1000] for doc in retrieved_docs[:2]).strip()
     if not retrieved_text:
         retrieved_text = (
@@ -36,20 +35,20 @@ def build_prompt(student_info: str, retrieved_docs: list) -> str:
 
     return f"""You are an expert in developing IEP transition goals that are measurable, aligned to standards, and follow IDEA 2004.
 
-Return your response as a JSON object starting with {{, and using ONLY the following keys:
+Return your response as a JSON object starting with {{ and using ONLY the following keys:
 
 {{
-  "employment_goal": "Measurable postsecondary employment goal.",
-  "education_goal": "Measurable postsecondary education/training goal.",
-  "annual_goal": "Annual IEP goal aligned to state standards.",
+  "employment_goal": "Clarence will obtain a full-time job at Walmart.",
+  "education_goal": "Clarence will complete on-the-job training after high school.",
+  "annual_goal": "Clarence will demonstrate customer service skills in a retail simulation.",
   "objectives": [
-    "Short-term objective 1 supporting the annual goal.",
-    "Short-term objective 2 supporting the annual goal.",
-    "Short-term objective 3 supporting the annual goal."
+    "Greet customers appropriately during role-play activities.",
+    "Maintain eye contact and respond to customer questions.",
+    "Complete a customer interaction checklist with 90% accuracy."
   ]
 }}
 
-If any detail is missing, make a professional assumption.
+The `objectives` field must be a JSON array with exactly 3 items. Use professional assumptions if data is missing.
 
 ### Student Profile:
 {student_info}
@@ -74,10 +73,20 @@ def generate_iep_goals(student_info: str, retrieved_docs: list) -> dict:
 
     try:
         json_start = response.find("{")
-        return json.loads(response[json_start:])
+        parsed = json.loads(response[json_start:])
+
+        # Postprocess malformed objective strings
+        if isinstance(parsed.get("objectives"), str):
+            parsed["objectives"] = [parsed["objectives"]]
+
+        if "objectives" in parsed and isinstance(parsed["objectives"], list):
+            parsed["objectives"] = parsed["objectives"][:3]
+
+        return parsed
     except Exception as e:
         return {
             "error": "Failed to parse LLM output as JSON.",
             "raw_output": response,
             "exception": str(e)
         }
+
