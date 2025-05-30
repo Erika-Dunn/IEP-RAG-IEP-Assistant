@@ -17,7 +17,7 @@ embedder = SentenceTransformer("all-MiniLM-L6-v2")
 def vector_search(query: str, k: int = 3) -> list:
     vec = embedder.encode([query], normalize_embeddings=True)
     D, I = faiss_index.search(vec.astype("float32"), k)
-    return [dict(doc_meta[i], sim=float(D[0][j])) for j, i in enumerate(I)]
+    return [dict(doc_meta[i], sim=float(D[0][j])) for j, i in enumerate(I[0])]
 
 # ─── 3) Load Local LLM ───────────────────────────────────────────────────────────
 model_name = "google/flan-t5-base"
