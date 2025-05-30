@@ -38,7 +38,9 @@ generator = pipeline(
     model=model,
     tokenizer=tokenizer,
     max_new_tokens=MAX_NEW_TOKENS,
-    return_full_text=False,           # ← prevents it from echoing the prompt
+    return_full_text=False,    # don’t echo prompt back
+    do_sample=False,           # deterministic decoding
+    temperature=0,             # no randomness
 )
 
 # --- Vector Search ---
@@ -67,16 +69,16 @@ Student profile:
 """
     
 def generate_goals_prompt(structured_profile_json):
-    return f"""Given the student profile below, **return ONLY** a JSON object with exactly these three keys:
+    return f"""You are an educational planning assistant.  
 
-- academic_goal  
-- independent_living_goal  
-- career_preparation_goal  
+**Return ONLY** a JSON object with exactly three keys (no extra text, no code):
 
-Each value must be a single SMART IEP goal in the format:
+  • academic_goal  
+  • independent_living_goal  
+  • career_preparation_goal  
+
+Each value must be a SMART IEP goal in this format:  
 [Condition], [Student] will [behavior] [criteria] [timeframe].
-
-**Do not** include any extra text, code, or commentary—just the JSON object.
 
 Student profile:
 {structured_profile_json}
