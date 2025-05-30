@@ -68,28 +68,31 @@ def generate_iep_goals(student_info: str, retrieved_docs: list) -> dict:
     prompt = build_prompt(student_info, retrieved_docs)
 
     try:
-        raw = llm_pipeline(prompt, max_new_tokens=512, do_sample=False)[0]["generated_text"].strip()
-        if not raw.startswith("{"):
-            raw = "{" + raw
+        response = llm_pipeline(prompt, max_new_tokens=512, do_sample=False)[0]["generated_text"].strip()
 
-        # Extract only the first valid JSON block
-        json_start = raw.find("{")
-        json_end = raw.rfind("}")
-        json_str = raw[json_start:json_end + 1]
+        # TEMP debug print:
+        print("==== RAW OUTPUT ====")
+        print(response[:2000])  # Only print first 2k chars
+        print("====================")
+
+        if not response.startswith("{"):
+            response = "{" + response.split("{", 1)[-1]
+
+        json_start = response.find("{")
+        json_end = response.rfind("}")
+        json_str = response[json_start:json_end + 1]
 
         parsed = json.loads(json_str)
 
-        # Fix string objectives → list
         if isinstance(parsed.get("objectives"), str):
             parsed["objectives"] = [parsed["objectives"]]
 
-        if "objectives" in parsed and isinstance(parsed["objectives"], list):
-            parsed["objectives"] = list(dict.fromkeys(parsed["objectives"]))[:3]
+        parsed["objectives"] = list(dict.fromkeys(parsed.get("objectives", [])))[:3]
 
         return parsed
     except Exception as e:
         return {
             "error": "Failed to parse LLM output as JSON.",
-            "raw_output": raw,
+            "raw_output": response,
             "exception": str(e)
         }
