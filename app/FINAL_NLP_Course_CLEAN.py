@@ -36,7 +36,7 @@ def vector_search(query: str, k: int = 3) -> list:
 # Load local Flan-T5 model for text generation
 # ─────────────────────────────────────────────────────────────────────────────
 
-model_name = "google/flan-t5-base"
+model_name = "google/flan-t5-small"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 llm_pipeline = pipeline("text2text-generation", model=model, tokenizer=tokenizer, device=-1)
