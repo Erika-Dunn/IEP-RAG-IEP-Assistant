@@ -1,105 +1,87 @@
 # FINAL_NLP_Course_CLEAN.py
-# ✅ Core logic: RAG pipeline, Hugging Face LLM call, student profile processing
-
 import os
 import json
 import pickle
-import re
 import faiss
-import pandas as pd
-import torch
 from sentence_transformers import SentenceTransformer
 from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
+import torch
 
-# Load FAISS index and metadata
+# 1) Load FAISS index and metadata
 INDEX_PATH = os.path.join('data', 'full_rag.index')
-META_PATH = os.path.join('data', 'full_rag_metadata.pkl')
+META_PATH  = os.path.join('data', 'full_rag_metadata.pkl')
 faiss_index = faiss.read_index(INDEX_PATH)
-doc_meta = pickle.load(open(META_PATH, "rb"))
+doc_meta     = pickle.load(open(META_PATH, 'rb'))
 
-# Embedding model
-embedder = SentenceTransformer("all-MiniLM-L6-v2")
+# 2) Embedding model for retrieval
+embedder = SentenceTransformer('all-MiniLM-L6-v2')
 
-# Replace existing LLM_NAME / MAX_NEW_TOKENS lines with:
-LLM_NAME = "mistralai/Mistral-7B-Instruct-v0.2"
-MAX_NEW_TOKENS = 200
-
-tokenizer = AutoTokenizer.from_pretrained(LLM_NAME)
-model = AutoModelForCausalLM.from_pretrained(
-    LLM_NAME,
-    device_map="auto",
-    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-    trust_remote_code=True,
-    low_cpu_mem_usage=True,
-)
-
-# ↓ Delete or comment out your old generator definition, then paste this ↓
-generator = pipeline(
-    "text-generation",
-    model=AutoModelForCausalLM.from_pretrained(
-        LLM_NAME,
-        device_map="auto",
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-    ),
-    tokenizer=AutoTokenizer.from_pretrained(LLM_NAME),
-    max_new_tokens=MAX_NEW_TOKENS,
-    do_sample=False,           # deterministic decoding
-    temperature=0.0,           # follow instructions exactly
-    return_full_text=False     # don't echo the prompt back
-)
-
-# --- Vector Search ---
 def vector_search(query: str, k: int = 3) -> list:
     q_vec = embedder.encode([query], normalize_embeddings=True)
-    D, I = faiss_index.search(q_vec, k)
+    D, I  = faiss_index.search(q_vec.astype('float32'), k)
     return [dict(doc_meta[i], sim=float(D[0][j])) for j, i in enumerate(I[0])]
 
-# --- Prompt Engineering ---
-def extract_student_info_prompt(profile_text):
+# 3) Aggregate retrieval across data sources
+def retrieve_context(goal_query: str) -> list:
+    occ_hits = vector_search(goal_query, k=3)
+    std_hits = vector_search("21st Century Skills " + goal_query, k=2)
+    iep_hits = vector_search("IEP goal example", k=1)
+    # merge and dedupe by section
+    merged = {h['section']: h for h in (occ_hits + std_hits + iep_hits)}
+    return list(merged.values())
+
+# 4) Prompt templates
+def extract_student_info_prompt(profile_text: str) -> str:
     return f"""Extract the following structured information from the student's profile text below.
-If information is not present, write \"missing\". Output in JSON format with these fields:
+If information is not present, write "missing". Output in JSON format with these keys:
 - name
 - age
-- grade level
+- grade_level
 - disability
 - strengths
-- academic concerns
-- support needs
-- postsecondary goal (employment)
-- postsecondary goal (education)
-- postsecondary goal (independent living)
+- academic_concerns
+- support_needs
+- postsecondary_goal_employment
+- postsecondary_goal_education
+- postsecondary_goal_independent_living
 
 Student profile:
-\"\"\"{profile_text}\"\"\"
+\"\"\"{profile_text}\"\"\""""
+
+def generate_goals_prompt(profile_json: dict) -> str:
+    return f"""Based on the student profile below (in JSON), return ONLY a JSON object with exactly these five keys:
+- postsecondary_employment_goal
+- postsecondary_education_goal
+- annual_goal
+- benchmarks
+- alignment
+
+Each goal must be SMART and measurable.  
+For the first three keys: a single goal string in the format  
+[Condition], [Student] will [behavior] [criteria] [timeframe].  
+For 'benchmarks' and 'alignment': arrays of short strings.
+
+Student profile JSON:
+{json.dumps(profile_json, indent=2)}
 """
-    
-def generate_goals_prompt(structured_profile_json):
-    return f"""You are an educational planning assistant.  
 
-**Return ONLY** a JSON object with exactly three keys (no extra text, no code):
+def build_rag_prompt(profile_json: dict, docs: list) -> str:
+    # Label and truncate each context doc
+    lines = []
+    for d in docs:
+        src = d['source']
+        text = d['text'].replace('\n',' ')[:300]
+        if src == 'bls_ooh':
+            label = d.get('job_title','Occupational Info')
+        elif src.startswith('or_21stCentury'):
+            label = 'Standards'
+        else:
+            label = 'IEP Example'
+        lines.append(f"{label}: {text}… [SOURCE:{d['section']}]")
+    context = "\n\n---\n".join(lines)
 
-  • academic_goal  
-  • independent_living_goal  
-  • career_preparation_goal  
-
-Each value must be a SMART IEP goal in this format:  
-[Condition], [Student] will [behavior] [criteria] [timeframe].
-
-Student profile:
-{structured_profile_json}
-"""
-    
-def make_prompt(question: str, docs: list[dict]) -> str:
-    # only keep the first 500 chars of each doc to avoid overload
-    context = "\n\n---\n".join(
-        f"{doc['text'][:500]} [SOURCE:{doc['section']}]"
-        for doc in docs
-    )
-    return f"""
-You are an educational planning assistant.  
-**Use ONLY the CONTEXT below**—do NOT repeat it in your answer.  
-Answer in JSON with keys: academic_goal, independent_living_goal, career_preparation_goal.
-
+    question = generate_goals_prompt(profile_json)
+    return f"""You are an educational planning assistant. Use ONLY the CONTEXT below (do NOT repeat it).
 CONTEXT:
 {context}
 
@@ -107,44 +89,45 @@ QUESTION:
 {question}
 """
 
-# --- Local LLM ---
+# 5) Load an instruction-tuned model
+LLM_NAME = "mistralai/Mistral-7B-Instruct-v0.2"
+tokenizer = AutoTokenizer.from_pretrained(LLM_NAME)
+model     = AutoModelForCausalLM.from_pretrained(
+    LLM_NAME,
+    device_map="auto",
+    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+)
+generator = pipeline(
+    "text-generation",
+    model=model,
+    tokenizer=tokenizer,
+    max_new_tokens=200,
+    do_sample=False,
+    temperature=0.0,
+    return_full_text=False,
+)
+
+# 6) LLM wrapper that tries JSON parse, else raw
 def llm(prompt: str) -> dict:
     print("LLM PROMPT:\n", prompt)
-    response = generator(prompt)[0]["generated_text"]
-    print("LLM RAW OUTPUT:\n", response)
+    out = generator(prompt)[0]["generated_text"]
+    print("LLM RAW OUTPUT:\n", out)
+    try:
+        start = out.find("{")
+        end   = out.rfind("}") + 1
+        return json.loads(out[start:end])
+    except Exception:
+        return {"raw_output": out.strip()}
 
-    # If the model used your prompt back, only keep the actual answer 
-    if "Condition:" in response:
-        # Chop away everything up to the first “Condition:”
-        answer = "Condition:" + response.split("Condition:", 1)[1].strip()
-        return {"raw_output": answer}
-
-    # Otherwise just return whatever it gave you
-    return {"raw_output": response.strip()}
-
-# --- Main Pipeline ---
+# 7) End-to-end pipeline
 def process_student_profile(profile_text: str) -> dict:
-    # 1) Extract structured info
-    extraction_prompt = extract_student_info_prompt(profile_text)
-    structured_info = llm(extraction_prompt)
+    # 1) Extract structured student info
+    info = llm(extract_student_info_prompt(profile_text))
 
-    # 2) Retrieve context docs
-    goal_query = structured_info.get("postsecondary goal (employment)", "undecided")
-    docs = vector_search(goal_query)
+    # 2) Retrieve context
+    docs = retrieve_context(info.get("postsecondary_goal_employment","undecided"))
 
-    # ← Insert the debug snippet here:
-    print("📚 Context docs for RAG prompt:")
-    for d in docs:
-        print(f" - {d['source']} | {d['section']} -> {d['text'][:100]}…")
-
-    # 2b) (Optional) filter to OOH-only
-    ooh_docs = [d for d in docs if d.get("source") == "bls_ooh"]
-    docs = ooh_docs or docs
-
-    # 3) Build and send the prompt
-    question = generate_goals_prompt(structured_info)
-    full_prompt = make_prompt(question, docs)
-
-    # 4) Call the LLM
-    return llm(full_prompt)
+    # 3) Build RAG prompt and generate
+    prompt = build_rag_prompt(info, docs)
+    return llm(prompt)
     return llm(full_prompt)
