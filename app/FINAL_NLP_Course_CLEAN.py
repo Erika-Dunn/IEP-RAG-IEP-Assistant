@@ -91,25 +91,44 @@ generator = pipeline(
 )
 
 # ─── 6) LLM wrapper ─────────────────────────────────────────────────────────────
-def llm_call(prompt:str)->dict:
-    print("PROMPT:\n",prompt)
-    out = generator(prompt)[0]["generated_text"]
-    print("RAW OUTPUT:\n",out)
-    # Extract JSON between tags
-    start = out.find("<JSON>")
-    end   = out.find("</JSON>")
-    if start!=-1 and end!=-1:
-        json_str = out[start+6:end].strip()
+def llm_call(prompt: str) -> dict:
+    print("PROMPT:\n", prompt)
+    
+    try:
+        response = generator(prompt)
+    except Exception as e:
+        return {"error": f"LLM pipeline failed: {str(e)}"}
+    
+    if not response or "generated_text" not in response[0]:
+        return {"error": "No response or unexpected format from LLM"}
+
+    out = response[0]["generated_text"]
+    print("RAW OUTPUT:\n", out)
+
+    # Try to extract JSON from between tags
+    start, end = out.find("<JSON>"), out.find("</JSON>")
+    if start != -1 and end != -1:
+        json_str = out[start + 6:end].strip()
         try:
             return json.loads(json_str)
-        except:
-            pass
-    # fallback: try to find braces
+        except json.JSONDecodeError as e:
+            return {
+                "error": "Failed to decode JSON from <JSON> tags",
+                "raw_output": out,
+                "json_snippet": json_str,
+                "decode_error": str(e),
+            }
+
+    # Fallback: attempt to find and load braces
     try:
-        s,e = out.find("{"), out.rfind("}")+1
+        s, e = out.find("{"), out.rfind("}") + 1
         return json.loads(out[s:e])
-    except:
-        return {"raw_output":out.strip()}
+    except Exception as e:
+        return {
+            "error": "Failed to extract JSON using fallback",
+            "raw_output": out,
+            "exception": str(e),
+        }
 
 # ─── 7) End-to-end pipeline ─────────────────────────────────────────────────────
 def process_student_profile(profile_text:str)->dict:
