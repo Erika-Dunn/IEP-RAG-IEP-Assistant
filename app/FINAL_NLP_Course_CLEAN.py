@@ -1,16 +1,12 @@
-from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
+import requests
 
-model_name = "declare-lab/flan-alpaca-base"  # lightweight, instruction-tuned
+API_URL = "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-alpha"
+HF_TOKEN = "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"
 
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(model_name)
-llm_pipeline = pipeline(
-    "text-generation",
-    model=model,
-    tokenizer=tokenizer,
-    device=-1,  # Force CPU
-    pad_token_id=tokenizer.eos_token_id
-)
+headers = {
+    "Authorization": f"Bearer {HF_TOKEN}",
+    "Content-Type": "application/json"
+}
 
 def build_prompt(student_info, retrieved_chunks):
     return f"""You are an expert in creating Individualized Education Program (IEP) goals. 
@@ -39,8 +35,23 @@ Objectives:
 3. ...
 """
 
+def query_hf_model(prompt):
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": 512,
+            "do_sample": True,
+            "temperature": 0.7,
+            "return_full_text": False
+        }
+    }
+    response = requests.post(API_URL, headers=headers, json=payload)
+    if response.status_code != 200:
+        return f"[ERROR {response.status_code}]: {response.text}"
+    return response.json()[0]["generated_text"]
+
 def generate_iep_goals(student_info, retrieved_docs):
     retrieved_text = "\n".join([doc.get("content", "") for doc in retrieved_docs])
     prompt = build_prompt(student_info, retrieved_text)
-    response = llm_pipeline(prompt, max_new_tokens=512, do_sample=True, temperature=0.7)
-    return response[0]['generated_text'].split(prompt)[-1].strip()
+    return query_hf_model(prompt).strip()
+
