@@ -103,7 +103,7 @@ def generate_iep_goals(student_info: str, retrieved_docs: list) -> dict:
     prompt = build_prompt(student_info, retrieved_text)
 
     # Run the LLM
-    response = llm_pipeline(prompt, max_new_tokens=1024, do_sample=False, temperature=0.3)
+    response = llm_pipeline(prompt, max_new_tokens=512)
     result = response[0].get("generated_text", "").strip()
 
     if not result:
