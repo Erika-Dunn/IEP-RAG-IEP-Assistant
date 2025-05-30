@@ -26,26 +26,26 @@ llm_pipeline = pipeline("text2text-generation", model=model, tokenizer=tokenizer
 
 # ─── 4) Prompt Constructor ───────────────────────────────────────────────────────
 def build_prompt(student_info: str, retrieved_docs: list) -> str:
-    # Truncate retrieved content to reduce total token length
+    # Truncate retrieved content to avoid exceeding token limit
     retrieved_text = "\n\n".join(doc.get("content", "")[:1000] for doc in retrieved_docs[:2]).strip()
     if not retrieved_text:
         retrieved_text = (
-            "Retail sales workers assist customers in finding products, handling purchases, and maintaining store presentation. "
-            "They need good interpersonal and communication skills, and usually receive on-the-job training."
+            "Retail sales workers assist customers, handle purchases, and maintain store presentation. "
+            "They need interpersonal and communication skills and typically receive on-the-job training."
         )
 
     return f"""You are an expert in developing IEP transition goals that are measurable, aligned to standards, and follow IDEA 2004.
 
-Return your response as a JSON object that starts with {{ and contains only the following keys:
+Return your response as a JSON object starting with {{, and using ONLY the following keys:
 
 {{
-  "employment_goal": "...",
-  "education_goal": "...",
-  "annual_goal": "...",
+  "employment_goal": "Measurable postsecondary employment goal.",
+  "education_goal": "Measurable postsecondary education/training goal.",
+  "annual_goal": "Annual IEP goal aligned to state standards.",
   "objectives": [
-    "...",
-    "...",
-    "..."
+    "Short-term objective 1 supporting the annual goal.",
+    "Short-term objective 2 supporting the annual goal.",
+    "Short-term objective 3 supporting the annual goal."
   ]
 }}
 
@@ -63,7 +63,8 @@ def generate_iep_goals(student_info: str, retrieved_docs: list) -> dict:
     prompt = build_prompt(student_info, retrieved_docs)
 
     try:
-        response = llm_pipeline(prompt, max_new_tokens=512)[0]["generated_text"].strip()
+        raw = llm_pipeline(prompt + "\n{", max_new_tokens=512, do_sample=False)[0]["generated_text"].strip()
+        response = "{" + raw if not raw.strip().startswith("{") else raw
     except Exception as e:
         return {
             "error": "Model returned no output or failed.",
