@@ -1,10 +1,23 @@
 # app_interface.py
-import os
-import warnings
+import os, sys, warnings, contextlib
+
+# Suppress Python + TF warnings
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 warnings.filterwarnings("ignore")
+
+# Optional: suppress low-level stderr (e.g., cuDNN/cublas XLA)
+@contextlib.contextmanager
+def suppress_stderr():
+    with open(os.devnull, 'w') as devnull:
+        old_stderr = sys.stderr
+        sys.stderr = devnull
+        try:
+            yield
+        finally:
+            sys.stderr = old_stderr
+
 
 import gradio as gr
 from FINAL_NLP_Course_CLEAN import process_student_profile
