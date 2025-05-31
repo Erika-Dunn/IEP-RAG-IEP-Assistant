@@ -16,13 +16,18 @@ def explain_results(result_dict):
         + "".join(f"- {b}\n" for b in result_dict.get('benchmarks', []))
     )
 
-def run_pipeline(profile_text):
-    result = process_student_profile(profile_text)
+def run_pipeline(name, grade, profile_text):
+    full_profile = f"Student name: {name}\nGrade level: {grade}\n{profile_text}"
+    result = process_student_profile(full_profile)
     return explain_results(result)
 
 iface = gr.Interface(
     fn=run_pipeline,
-    inputs=gr.Textbox(lines=12, label="Student Profile", placeholder="Paste or type the student's background, interests, and assessment results..."),
+    inputs=[
+        gr.Textbox(label="Student Name", placeholder="e.g. Clarence"),
+        gr.Textbox(label="Grade Level", placeholder="e.g. 10th grade"),
+        gr.Textbox(lines=10, label="Student Profile", placeholder="Paste or type the student's background, interests, and assessment results...")
+    ],
     outputs=gr.Markdown(label="Generated IEP Goals & Standards Alignment"),
     title="IEP Goal Generator",
     description="Enter a student profile and receive aligned postsecondary and annual IEP goals based on interests, assessments, and standards."
