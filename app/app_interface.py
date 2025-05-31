@@ -1,4 +1,10 @@
 # app_interface.py
+import os
+import warnings
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+warnings.filterwarnings("ignore")
 
 import gradio as gr
 from FINAL_NLP_Course_CLEAN import process_student_profile
